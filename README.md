@@ -40,13 +40,14 @@ HEAD /file  →  Content-Length + Accept-Ranges: bytes
 
 ```
   Chunk  1  [████████████████████████████] 100% ✓  3.4 MB
-  Chunk  2  [████████████░░░░░░░░░░░░░░░░]  43%
-  Chunk  3  [██░░░░░░░░░░░░░░░░░░░░░░░░░░]   7%
+  Chunk  2  [████████████████████████████] 100% ✓  3.4 MB
+  Chunk  3  [░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0%
   ...
   Total     [████████████████████░░░░░░░░]  72%  |  5/8 chunks  |  38.1 MB/s
 ```
 
-Each bar updates in place using ANSI cursor-up sequences — works in any ANSI-compatible terminal.
+Each bar is updated when its chunk completes (the HTTP body is buffered via `ofByteArray()` before writing).
+Bars overwrite previous lines in place using ANSI cursor-up sequences — works in any ANSI-compatible terminal.
 
 ## Configuration
 
@@ -68,8 +69,12 @@ Chunk size is computed dynamically: `max(fileSize / MAX_PARALLEL_CHUNKS, MIN_CHU
 
 ```bash
 mvn package
-# edit Main.java to point at your URL + output path
-mvn exec:java -Dexec.mainClass=com.downloader.Main
+java -jar target/file-downloader-1.0-SNAPSHOT.jar <url> <output-path>
+```
+
+Example:
+```bash
+java -jar target/file-downloader-1.0-SNAPSHOT.jar https://example.com/file.zip /tmp/file.zip
 ```
 
 ## Tests
@@ -78,4 +83,14 @@ mvn exec:java -Dexec.mainClass=com.downloader.Main
 mvn test
 ```
 
-8 unit tests covering `getFileSize`, `splitIntoChunks`, `downloadChunkAsync` (including retry logic and Range header verification), and the full download pipeline. HTTP layer is mocked with Mockito — no network required.
+9 tests across two suites:
+
+**Unit tests** (Mockito — no network):
+- `getFileSize`: Content-Length parsing, missing Content-Length, missing Accept-Ranges
+- `splitIntoChunks`: remainder chunk, exact file-size multiple
+- `downloadChunkAsync`: correct byte offset, Range header verification, retry on failure
+- `download`: full pipeline assembles chunks in correct order
+
+**Integration test** (real embedded HTTP server):
+- Spins up a local `HttpServer` serving HEAD + byte-range GET requests
+- Downloads a 5 MB file in parallel chunks and asserts byte-for-byte equality

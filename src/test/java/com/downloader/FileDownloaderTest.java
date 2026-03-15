@@ -187,6 +187,7 @@ class FileDownloaderTest {
     @SuppressWarnings("unchecked")
     private HttpResponse<byte[]> mockByteResponse(byte[] data) {
         HttpResponse<byte[]> mockResponse = Mockito.mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(206);
         when(mockResponse.body()).thenReturn(data);
         return mockResponse;
     }
