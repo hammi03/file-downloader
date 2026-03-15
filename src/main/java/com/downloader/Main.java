@@ -5,19 +5,23 @@ import java.net.http.HttpClient;
 public class Main {
 
     public static void main(String[] args) throws Exception {
-        String url        = "http://localhost:8080/testfile.txt";
-        String outputPath = "C:/Users/hammi/file-downloader/downloaded.txt";
+        if (args.length < 2) {
+            System.err.println("Usage: file-downloader <url> <output-path>");
+            System.err.println("Example: file-downloader https://example.com/file.zip /tmp/file.zip");
+            System.exit(1);
+        }
+
+        String url        = args[0];
+        String outputPath = args[1];
 
         HttpClient httpClient = HttpClient.newHttpClient();
         FileDownloader downloader = new FileDownloader(httpClient);
 
-        System.out.println("Starte parallelen Download...");
-
         long start = System.currentTimeMillis();
-        downloader.download(url, outputPath); // chunk size computed automatically
+        downloader.download(url, outputPath);
         long end = System.currentTimeMillis();
 
-        System.out.println("Fertig in " + (end - start) + " ms");
-        System.out.println("Gespeichert unter: " + outputPath);
+        System.out.println("Done in " + (end - start) + " ms");
+        System.out.println("Saved to: " + outputPath);
     }
 }
