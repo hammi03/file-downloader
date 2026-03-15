@@ -130,11 +130,12 @@ public class FileDownloader {
      * @param url         resource URL
      * @param from        first byte of the range (inclusive)
      * @param to          last byte of the range (inclusive)
+     * @param chunkIndex  zero-based index of this chunk (for progress bar)
      * @param raf         pre-allocated output file; writes are position-safe via {@code synchronized}
      * @param semaphore   limits the number of concurrent HTTP connections
      * @param completed   shared counter incremented after each successful chunk
      * @param total       total number of chunks (used for progress display)
-     * @param progressBar live progress bar updated after each successful chunk
+     * @param progressBar progress bar updated after each successful chunk
      * @param attempt     current attempt number (starts at 1)
      * @return a future that completes when the chunk has been written to disk
      */
@@ -163,7 +164,15 @@ public class FileDownloader {
                 .build();
 
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
-                .thenApply(HttpResponse::body)
+                .thenApply(response -> {
+                    // Validate that the server honoured the Range request (RFC 7233 §4.1)
+                    if (response.statusCode() != 206) {
+                        throw new RuntimeException(
+                                "Expected 206 Partial Content for Range bytes=" + from + "-" + to
+                                + " but server returned " + response.statusCode());
+                    }
+                    return response.body();
+                })
                 .thenAccept(bytes -> {
                     try {
                         // Seek to the chunk's offset and write — synchronized because
@@ -178,8 +187,12 @@ public class FileDownloader {
                         throw new RuntimeException(e);
                     }
                 })
+                // Release the semaphore slot exactly once per acquire, before any retry.
+                // Placing whenComplete here (before exceptionallyCompose) ensures the slot
+                // is freed whether the stage succeeded or failed, and the recursive retry
+                // will independently acquire its own slot — preventing double-release.
+                .whenComplete((v, e) -> semaphore.release())
                 .exceptionallyCompose(e -> {
-                    semaphore.release(); // free the slot before retrying
                     if (attempt < MAX_RETRIES) {
                         return downloadChunkAsync(url, from, to, chunkIndex, raf, semaphore,
                                 completed, total, progressBar, attempt + 1);
@@ -187,8 +200,7 @@ public class FileDownloader {
                     return CompletableFuture.failedFuture(
                             new IOException("Chunk bytes=" + from + "-" + to
                                     + " failed after " + MAX_RETRIES + " attempts", e));
-                })
-                .whenComplete((v, e) -> semaphore.release());
+                });
     }
 
     // ── Step 4: Orchestrate the full download ─────────────────────────────────
